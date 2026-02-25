@@ -64,3 +64,18 @@ If Codex.app cannot be inspected (missing app, extraction/search failure) or has
 
 - After completing a task that changes behavior or UI, always run a Playwright verification in **headless** mode.
 - Always capture a screenshot of the changed result and display that screenshot in chat when reporting completion.
+
+## Findings: Workspace Root Ordering (2026-02-25)
+
+- Codex.app persists workspace root ordering/labels in global state JSON keys:
+  - `electron-saved-workspace-roots` (order source of truth)
+  - `electron-workspace-root-labels`
+  - `active-workspace-roots`
+- In this environment, persisted file path is:
+  - `~/.codex/.codex-global-state.json`
+- In packaged desktop runs, equivalent userData path is typically:
+  - `~/Library/Application Support/Codex/.codex-global-state.json`
+- For folder/project reorder parity, prefer reading these keys over browser LocalStorage-only ordering.
+- Validation requirement for reorder changes:
+  - Run build/typecheck.
+  - Run Playwright in headless mode and capture a screenshot showing sidebar order.

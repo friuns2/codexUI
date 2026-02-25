@@ -8,6 +8,7 @@ import {
   replyToServerRequest,
   getThreadGroups,
   getThreadMessages,
+  getWorkspaceRootsState,
   resumeThread,
   startThread,
   subscribeCodexNotifications,
@@ -191,7 +192,8 @@ function saveProjectDisplayNames(displayNames: Record<string, string>): void {
 }
 
 function mergeProjectOrder(previousOrder: string[], incomingGroups: UiProjectGroup[]): string[] {
-  const nextOrder = [...previousOrder]
+  const incomingNames = new Set(incomingGroups.map((group) => group.projectName))
+  const nextOrder = previousOrder.filter((projectName) => incomingNames.has(projectName))
 
   for (const group of incomingGroups) {
     if (!nextOrder.includes(group.projectName)) {
@@ -204,16 +206,9 @@ function mergeProjectOrder(previousOrder: string[], incomingGroups: UiProjectGro
 
 function orderGroupsByProjectOrder(incoming: UiProjectGroup[], projectOrder: string[]): UiProjectGroup[] {
   const incomingByName = new Map(incoming.map((group) => [group.projectName, group]))
-  const ordered: UiProjectGroup[] = projectOrder.map((projectName) => {
-    const incomingGroup = incomingByName.get(projectName)
-    if (incomingGroup) {
-      return incomingGroup
-    }
-    return {
-      projectName,
-      threads: [],
-    }
-  })
+  const ordered: UiProjectGroup[] = projectOrder
+    .map((projectName) => incomingByName.get(projectName))
+    .filter((group): group is UiProjectGroup => Boolean(group))
 
   for (const group of incoming) {
     if (!projectOrder.includes(group.projectName)) {
@@ -539,6 +534,12 @@ function toProjectName(cwd: string): string {
   return parts.at(-1) || cwd || 'unknown-project'
 }
 
+function toProjectNameFromWorkspaceRoot(value: string): string {
+  const normalized = value.replace(/\\/gu, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  return parts.at(-1) || normalized
+}
+
 function toOptimisticThreadTitle(message: string): string {
   const firstLine = message
     .split('\n')
@@ -589,6 +590,7 @@ export function useDesktopState() {
   let autoRefreshCountdownTimer: number | null = null
   let pendingThreadsRefresh = false
   const pendingThreadMessageRefresh = new Set<string>()
+  let hasHydratedWorkspaceRootsState = false
   let activeReasoningItemId = ''
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
@@ -1527,6 +1529,49 @@ export function useDesktopState() {
     }, EVENT_SYNC_DEBOUNCE_MS)
   }
 
+  async function hydrateWorkspaceRootsStateIfNeeded(groups: UiProjectGroup[]): Promise<void> {
+    if (hasHydratedWorkspaceRootsState) return
+    hasHydratedWorkspaceRootsState = true
+
+    try {
+      const rootsState = await getWorkspaceRootsState()
+      const groupNames = new Set(groups.map((group) => group.projectName))
+
+      const hydratedOrder: string[] = []
+      for (const rootPath of rootsState.order) {
+        const projectName = toProjectNameFromWorkspaceRoot(rootPath)
+        if (!groupNames.has(projectName) || hydratedOrder.includes(projectName)) continue
+        hydratedOrder.push(projectName)
+      }
+
+      if (hydratedOrder.length > 0) {
+        const mergedOrder = mergeProjectOrder(hydratedOrder, groups)
+        if (!areStringArraysEqual(projectOrder.value, mergedOrder)) {
+          projectOrder.value = mergedOrder
+          saveProjectOrder(projectOrder.value)
+        }
+      }
+
+      if (Object.keys(rootsState.labels).length > 0) {
+        const nextLabels = { ...projectDisplayNameById.value }
+        let changed = false
+        for (const [rootPath, label] of Object.entries(rootsState.labels)) {
+          const projectName = toProjectNameFromWorkspaceRoot(rootPath)
+          if (!groupNames.has(projectName)) continue
+          if (nextLabels[projectName] === label) continue
+          nextLabels[projectName] = label
+          changed = true
+        }
+        if (changed) {
+          projectDisplayNameById.value = nextLabels
+          saveProjectDisplayNames(nextLabels)
+        }
+      }
+    } catch {
+      // Keep local storage fallback when global state is unavailable.
+    }
+  }
+
   async function loadThreads() {
     if (!hasLoadedThreads.value) {
       isLoadingThreads.value = true
@@ -1534,6 +1579,7 @@ export function useDesktopState() {
 
     try {
       const groups = await getThreadGroups()
+      await hydrateWorkspaceRootsStateIfNeeded(groups)
 
       const nextProjectOrder = mergeProjectOrder(projectOrder.value, groups)
       if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
@@ -1840,16 +1886,18 @@ export function useDesktopState() {
 
   function reorderProject(projectName: string, toIndex: number): void {
     if (projectName.length === 0) return
-    if (projectOrder.value.length === 0) return
+    if (sourceGroups.value.length === 0) return
 
-    const fromIndex = projectOrder.value.indexOf(projectName)
+    const visibleOrder = sourceGroups.value.map((group) => group.projectName)
+    const fromIndex = visibleOrder.indexOf(projectName)
     if (fromIndex === -1) return
 
-    const clampedToIndex = Math.max(0, Math.min(toIndex, projectOrder.value.length - 1))
-    const nextProjectOrder = reorderStringArray(projectOrder.value, fromIndex, clampedToIndex)
-    if (nextProjectOrder === projectOrder.value) return
+    const clampedToIndex = Math.max(0, Math.min(toIndex, visibleOrder.length - 1))
+    const reorderedVisibleOrder = reorderStringArray(visibleOrder, fromIndex, clampedToIndex)
+    if (reorderedVisibleOrder === visibleOrder) return
 
-    projectOrder.value = nextProjectOrder
+    const normalizedProjectOrder = mergeProjectOrder(reorderedVisibleOrder, sourceGroups.value)
+    projectOrder.value = normalizedProjectOrder
     saveProjectOrder(projectOrder.value)
 
     const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)

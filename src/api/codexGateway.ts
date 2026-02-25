@@ -23,6 +23,12 @@ type CurrentModelConfig = {
   reasoningEffort: ReasoningEffort | ''
 }
 
+export type WorkspaceRootsState = {
+  order: string[]
+  labels: Record<string, string>
+  active: string[]
+}
+
 async function callRpc<T>(method: string, params?: unknown): Promise<T> {
   try {
     return await rpcCall<T>(method, params)
@@ -199,6 +205,52 @@ export async function getCurrentModelConfig(): Promise<CurrentModelConfig> {
   const model = payload.config.model ?? ''
   const reasoningEffort = normalizeReasoningEffort(payload.config.model_reasoning_effort)
   return { model, reasoningEffort }
+}
+
+function normalizeWorkspaceRootsState(payload: unknown): WorkspaceRootsState {
+  const record = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {}
+
+  const normalizeArray = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return []
+    const next: string[] = []
+    for (const item of value) {
+      if (typeof item === 'string' && item.length > 0 && !next.includes(item)) {
+        next.push(item)
+      }
+    }
+    return next
+  }
+
+  const labelsRaw = record.labels
+  const labels: Record<string, string> = {}
+  if (labelsRaw && typeof labelsRaw === 'object' && !Array.isArray(labelsRaw)) {
+    for (const [key, value] of Object.entries(labelsRaw as Record<string, unknown>)) {
+      if (typeof key === 'string' && key.length > 0 && typeof value === 'string') {
+        labels[key] = value
+      }
+    }
+  }
+
+  return {
+    order: normalizeArray(record.order),
+    labels,
+    active: normalizeArray(record.active),
+  }
+}
+
+export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
+  const response = await fetch('/codex-api/workspace-roots-state')
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error('Failed to load workspace roots state')
+  }
+  const envelope =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  return normalizeWorkspaceRootsState(envelope.data)
 }
 
 // `thread/loaded/list` returns sessions loaded in memory, not currently running turns.

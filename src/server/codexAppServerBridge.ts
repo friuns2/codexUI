@@ -1,8 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtemp, readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { writeFile } from 'node:fs/promises'
 
 type JsonRpcCall = {
   jsonrpc: '2.0'
@@ -33,6 +35,12 @@ type ServerRequestReply = {
     code: number
     message: string
   }
+}
+
+type WorkspaceRootsState = {
+  order: string[]
+  labels: Record<string, string>
+  active: string[]
 }
 
 type PendingServerRequest = {
@@ -71,6 +79,72 @@ function setJson(res: ServerResponse, statusCode: number, payload: unknown): voi
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.end(JSON.stringify(payload))
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const normalized: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.length > 0 && !normalized.includes(item)) {
+      normalized.push(item)
+    }
+  }
+  return normalized
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const next: Record<string, string> = {}
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof key === 'string' && key.length > 0 && typeof item === 'string') {
+      next[key] = item
+    }
+  }
+  return next
+}
+
+function getCodexGlobalStatePath(): string {
+  const codexHome = process.env.CODEX_HOME?.trim()
+  if (codexHome) {
+    return join(codexHome, '.codex-global-state.json')
+  }
+  return join(homedir(), '.codex', '.codex-global-state.json')
+}
+
+async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
+  const statePath = getCodexGlobalStatePath()
+  let payload: Record<string, unknown> = {}
+
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    const parsed = JSON.parse(raw) as unknown
+    payload = asRecord(parsed) ?? {}
+  } catch {
+    payload = {}
+  }
+
+  return {
+    order: normalizeStringArray(payload['electron-saved-workspace-roots']),
+    labels: normalizeStringRecord(payload['electron-workspace-root-labels']),
+    active: normalizeStringArray(payload['active-workspace-roots']),
+  }
+}
+
+async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): Promise<void> {
+  const statePath = getCodexGlobalStatePath()
+  let payload: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    payload = asRecord(JSON.parse(raw)) ?? {}
+  } catch {
+    payload = {}
+  }
+
+  payload['electron-saved-workspace-roots'] = normalizeStringArray(nextState.order)
+  payload['electron-workspace-root-labels'] = normalizeStringRecord(nextState.labels)
+  payload['active-workspace-roots'] = normalizeStringArray(nextState.active)
+
+  await writeFile(statePath, JSON.stringify(payload), 'utf8')
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -546,6 +620,29 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (req.method === 'GET' && url.pathname === '/codex-api/meta/notifications') {
         const methods = await methodCatalog.listNotificationMethods()
         setJson(res, 200, { data: methods })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/workspace-roots-state') {
+        const state = await readWorkspaceRootsState()
+        setJson(res, 200, { data: state })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/workspace-roots-state') {
+        const payload = await readJsonBody(req)
+        const record = asRecord(payload)
+        if (!record) {
+          setJson(res, 400, { error: 'Invalid body: expected object' })
+          return
+        }
+        const nextState: WorkspaceRootsState = {
+          order: normalizeStringArray(record.order),
+          labels: normalizeStringRecord(record.labels),
+          active: normalizeStringArray(record.active),
+        }
+        await writeWorkspaceRootsState(nextState)
+        setJson(res, 200, { ok: true })
         return
       }
 
