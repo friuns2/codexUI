@@ -275,6 +275,40 @@ export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
   return normalizeWorkspaceRootsState(envelope.data)
 }
 
+export type ThreadTitleCache = { titles: Record<string, string>; order: string[] }
+
+export async function getThreadTitleCache(): Promise<ThreadTitleCache> {
+  try {
+    const response = await fetch('/codex-api/thread-titles')
+    if (!response.ok) return { titles: {}, order: [] }
+    const envelope = (await response.json()) as { data?: ThreadTitleCache }
+    return envelope.data ?? { titles: {}, order: [] }
+  } catch {
+    return { titles: {}, order: [] }
+  }
+}
+
+export async function persistThreadTitle(id: string, title: string): Promise<void> {
+  try {
+    await fetch('/codex-api/thread-titles', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, title }),
+    })
+  } catch {
+    // Best-effort persist
+  }
+}
+
+export async function generateThreadTitle(prompt: string, cwd: string | null): Promise<string> {
+  try {
+    const result = await callRpc<{ title?: string }>('generate-thread-title', { prompt, cwd })
+    return result.title?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
 export type SkillInfo = {
   name: string
   description: string

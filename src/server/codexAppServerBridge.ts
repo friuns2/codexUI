@@ -136,6 +136,62 @@ function getCodexGlobalStatePath(): string {
   return join(homedir(), '.codex', '.codex-global-state.json')
 }
 
+type ThreadTitleCache = { titles: Record<string, string>; order: string[] }
+const MAX_THREAD_TITLES = 500
+
+function normalizeThreadTitleCache(value: unknown): ThreadTitleCache {
+  const record = asRecord(value)
+  if (!record) return { titles: {}, order: [] }
+  const rawTitles = asRecord(record.titles)
+  const titles: Record<string, string> = {}
+  if (rawTitles) {
+    for (const [k, v] of Object.entries(rawTitles)) {
+      if (typeof v === 'string' && v.length > 0) titles[k] = v
+    }
+  }
+  const order = normalizeStringArray(record.order)
+  return { titles, order }
+}
+
+function updateThreadTitleCache(cache: ThreadTitleCache, id: string, title: string): ThreadTitleCache {
+  const titles = { ...cache.titles, [id]: title }
+  const order = [id, ...cache.order.filter((o) => o !== id)]
+  while (order.length > MAX_THREAD_TITLES) {
+    const removed = order.pop()
+    if (removed) delete titles[removed]
+  }
+  return { titles, order }
+}
+
+function removeFromThreadTitleCache(cache: ThreadTitleCache, id: string): ThreadTitleCache {
+  const { [id]: _, ...titles } = cache.titles
+  return { titles, order: cache.order.filter((o) => o !== id) }
+}
+
+async function readThreadTitleCache(): Promise<ThreadTitleCache> {
+  const statePath = getCodexGlobalStatePath()
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    const payload = asRecord(JSON.parse(raw)) ?? {}
+    return normalizeThreadTitleCache(payload['thread-titles'])
+  } catch {
+    return { titles: {}, order: [] }
+  }
+}
+
+async function writeThreadTitleCache(cache: ThreadTitleCache): Promise<void> {
+  const statePath = getCodexGlobalStatePath()
+  let payload: Record<string, unknown> = {}
+  try {
+    const raw = await readFile(statePath, 'utf8')
+    payload = asRecord(JSON.parse(raw)) ?? {}
+  } catch {
+    payload = {}
+  }
+  payload['thread-titles'] = cache
+  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+}
+
 async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
   const statePath = getCodexGlobalStatePath()
   let payload: Record<string, unknown> = {}
@@ -731,6 +787,27 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           active: normalizeStringArray(record.active),
         }
         await writeWorkspaceRootsState(nextState)
+        setJson(res, 200, { ok: true })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/thread-titles') {
+        const cache = await readThreadTitleCache()
+        setJson(res, 200, { data: cache })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/thread-titles') {
+        const payload = asRecord(await readJsonBody(req))
+        const id = typeof payload?.id === 'string' ? payload.id : ''
+        const title = typeof payload?.title === 'string' ? payload.title : ''
+        if (!id) {
+          setJson(res, 400, { error: 'Missing id' })
+          return
+        }
+        const cache = await readThreadTitleCache()
+        const next = title ? updateThreadTitleCache(cache, id, title) : removeFromThreadTitleCache(cache, id)
+        await writeThreadTitleCache(next)
         setJson(res, 200, { ok: true })
         return
       }

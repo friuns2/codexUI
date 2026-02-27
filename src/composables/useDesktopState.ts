@@ -11,6 +11,9 @@ import {
   getThreadGroups,
   getThreadMessages,
   getWorkspaceRootsState,
+  getThreadTitleCache,
+  persistThreadTitle,
+  generateThreadTitle,
   resumeThread,
   startThread,
   subscribeCodexNotifications,
@@ -584,6 +587,8 @@ export function useDesktopState() {
   const activeTurnIdByThreadId = ref<Record<string, string>>({})
   const pendingServerRequestsByThreadId = ref<Record<string, UiServerRequest[]>>({})
 
+  const threadTitleById = ref<Record<string, string>>({})
+
   const installedSkills = ref<SkillInfo[]>([])
 
   const isLoadingThreads = ref(false)
@@ -710,8 +715,21 @@ export function useDesktopState() {
     }
   }
 
+  function applyCachedTitlesToGroups(groups: UiProjectGroup[]): UiProjectGroup[] {
+    const titles = threadTitleById.value
+    if (Object.keys(titles).length === 0) return groups
+    return groups.map((group) => ({
+      projectName: group.projectName,
+      threads: group.threads.map((thread) => {
+        const cached = titles[thread.id]
+        return cached ? { ...thread, title: cached } : thread
+      }),
+    }))
+  }
+
   function applyThreadFlags(): void {
-    const flaggedGroups: UiProjectGroup[] = sourceGroups.value.map((group) => ({
+    const withTitles = applyCachedTitlesToGroups(sourceGroups.value)
+    const flaggedGroups: UiProjectGroup[] = withTitles.map((group) => ({
       projectName: group.projectName,
       threads: group.threads.map((thread) => {
         const inProgress = inProgressById.value[thread.id] === true
@@ -1383,6 +1401,17 @@ export function useDesktopState() {
       return
     }
 
+    if (notification.method === 'thread/name/updated') {
+      const params = asRecord(notification.params)
+      const threadId = readString(params?.threadId)
+      const threadName = readString(params?.threadName)
+      if (threadId && threadName) {
+        threadTitleById.value = { ...threadTitleById.value, [threadId]: threadName }
+        applyThreadFlags()
+        void persistThreadTitle(threadId, threadName)
+      }
+    }
+
     const turnActivity = readTurnActivity(notification)
     if (turnActivity) {
       setTurnActivityForThread(turnActivity.threadId, turnActivity.activity)
@@ -1581,13 +1610,41 @@ export function useDesktopState() {
     }
   }
 
+  async function loadThreadTitleCacheIfNeeded(): Promise<void> {
+    if (Object.keys(threadTitleById.value).length > 0) return
+    try {
+      const cache = await getThreadTitleCache()
+      if (Object.keys(cache.titles).length > 0) {
+        threadTitleById.value = cache.titles
+      }
+    } catch {
+      // Title cache is optional; keep UI functional.
+    }
+  }
+
+  async function requestThreadTitleGeneration(threadId: string, prompt: string, cwd: string | null): Promise<void> {
+    if (threadTitleById.value[threadId]) return
+    const trimmed = prompt.trim()
+    if (!trimmed) return
+    const truncated = trimmed.length > 300 ? trimmed.slice(0, 300) : trimmed
+    try {
+      const title = await generateThreadTitle(truncated, cwd)
+      if (!title || threadTitleById.value[threadId]) return
+      threadTitleById.value = { ...threadTitleById.value, [threadId]: title }
+      applyThreadFlags()
+      void persistThreadTitle(threadId, title)
+    } catch {
+      // Title generation is best-effort.
+    }
+  }
+
   async function loadThreads() {
     if (!hasLoadedThreads.value) {
       isLoadingThreads.value = true
     }
 
     try {
-      const groups = await getThreadGroups()
+      const [groups] = await Promise.all([getThreadGroups(), loadThreadTitleCacheIfNeeded()])
       await hydrateWorkspaceRootsStateIfNeeded(groups)
 
       const nextProjectOrder = mergeProjectOrder(projectOrder.value, groups)
@@ -1784,6 +1841,9 @@ export function useDesktopState() {
       )
       setTurnErrorForThread(threadId, null)
       setThreadInProgress(threadId, true)
+      const capturedThreadId = threadId
+      const capturedCwd = targetCwd || null
+      const capturedPrompt = nextText
       void startTurnForThread(threadId, nextText, imageUrls, skills)
         .catch((unknownError) => {
           shouldAutoScrollOnNextAgentEvent = false
@@ -1796,6 +1856,7 @@ export function useDesktopState() {
         .finally(() => {
           isSendingMessage.value = false
         })
+      void requestThreadTitleGeneration(capturedThreadId, capturedPrompt, capturedCwd)
       return threadId
     } catch (unknownError) {
       shouldAutoScrollOnNextAgentEvent = false
