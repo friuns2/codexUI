@@ -50,24 +50,14 @@ function ensureTermuxCodexInstalled(): string | null {
     return resolveCodexCommand()
   }
 
-  if (!canRun('git', ['--version'])) {
-    console.log('\nGit not found. Installing git in Termux...\n')
-    runOrFail('pkg', ['install', '-y', 'git'], 'Termux git install')
-  }
-
   let codexCommand = resolveCodexCommand()
   if (!codexCommand) {
-    console.log('\nCodex CLI not found. Installing Termux-compatible Codex CLI...\n')
-    runOrFail('npm', ['install', '-g', 'git+https://github.com/DioNanos/codex-termux.git'], 'Codex CLI install')
+    console.log('\nCodex CLI not found. Installing Termux-compatible Codex CLI from npm...\n')
+    runOrFail('npm', ['install', '-g', '@mmmbuto/codex-cli-termux'], 'Codex CLI install')
     codexCommand = resolveCodexCommand()
     if (!codexCommand) {
-      console.log('\nGitHub dependency installed, but `codex` binary was not found. Installing npm fallback...\n')
-      runOrFail('npm', ['install', '-g', '@mmmbuto/codex-cli-termux'], 'Codex CLI fallback install')
-      codexCommand = resolveCodexCommand()
-    }
-    if (!codexCommand) {
-      console.log('\nTermux npm fallback did not expose `codex`. Installing official CLI fallback...\n')
-      runOrFail('npm', ['install', '-g', '@openai/codex'], 'Codex CLI official fallback install')
+      console.log('\nTermux npm package did not expose `codex`. Installing official CLI fallback...\n')
+      runOrFail('npm', ['install', '-g', '@openai/codex'], 'Codex CLI fallback install')
       codexCommand = resolveCodexCommand()
     }
     if (!codexCommand) {
