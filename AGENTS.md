@@ -1,20 +1,25 @@
 # AGENTS.md
 
-## Detached HEAD: Merge To Local `main` Without Creating A Branch (only merge if user asks for it)
+## "Push to main" Means Merge To Local Main
 
-- If working in detached `HEAD`, commit there first.
-- Then apply that commit onto local `main` from the main worktree using fast-forward merge or cherry-pick.
+- When the user says "push", interpret it as: merge the current work into local `main`
+- Do not push to any remote unless the user explicitly asks to push to a remote.
 
-## Merging Worktree Branch to Main With Conflicts
+## Detached HEAD: Best Practical Flow To Update Local `main` (only merge if user asks for it)
 
-When merging a worktree branch into `main` and conflicts arise:
-
-1. Run `git merge <branch> --no-commit` from the main worktree (`/Users/igor/Git-projects/codex-web-local`).
-2. Identify conflicted files with `git diff --name-only --diff-filter=U`.
-3. For each conflicted file, resolve using a Python script that replaces the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) with the correctly merged content — keeping changes from **both** sides.
-4. Do **not** blindly `--ours` or `--theirs` — manually combine both sides.
-5. After fixing, `git add <file>` and `git commit`.
-6. Note: the worktree workspace (`zpw/`) is restricted — `StrReplace` tool cannot edit files in the main worktree. Use `Shell` or a Python script instead.
+1. Commit your detached `HEAD` work first.
+   - `git add -A && git commit -m "<message>"`
+2. Switch to local `main` in the main worktree and ensure it is current.
+   - `git checkout main`
+   - `git pull --ff-only` (only when remote sync is explicitly needed)
+3. Apply detached `HEAD` commit(s) onto local `main`.
+   - Prefer: `git cherry-pick <detached-commit-sha>`
+4. If conflicts occur, combine both sides manually (do not blindly use `--ours` or `--theirs`), then continue:
+   - `git add <resolved-files>`
+   - `git cherry-pick --continue`
+5. Validate and finalize.
+   - Run relevant tests/checks.
+   - Keep "push" meaning merge to local `main` only, unless remote push is explicitly requested.
 
 ## Commit After Each Task
 
