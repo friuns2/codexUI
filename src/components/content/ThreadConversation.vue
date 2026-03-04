@@ -175,6 +175,7 @@
                         <code v-else class="message-inline-code">{{ segment.value }}</code>
                       </template>
                     </p>
+                    <p v-else-if="isMarkdownImageFailed(message.id, blockIndex)" class="message-text">{{ block.markdown }}</p>
                     <button
                       v-else
                       class="message-image-button"
@@ -186,6 +187,7 @@
                         :src="block.url"
                         :alt="block.alt || 'Embedded message image'"
                         loading="lazy"
+                        @error="onMarkdownImageError(message.id, blockIndex)"
                       />
                     </button>
                   </template>
@@ -350,12 +352,13 @@ type InlineSegment =
   | { kind: 'file'; value: string; displayName: string }
 type MessageBlock =
   | { kind: 'text'; value: string }
-  | { kind: 'image'; url: string; alt: string }
+  | { kind: 'image'; url: string; alt: string; markdown: string }
 
 let scrollRestoreFrame = 0
 let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 const trackedPendingImages = new WeakSet<HTMLImageElement>()
+const failedMarkdownImageKeys = ref<Set<string>>(new Set())
 
 type ParsedToolQuestion = {
   id: string
@@ -524,7 +527,7 @@ function parseMessageBlocks(text: string): MessageBlock[] {
       blocks.push({ kind: 'text', value: text.slice(cursor, start) })
     }
 
-    blocks.push({ kind: 'image', url: imageUrl, alt: altRaw.trim() })
+    blocks.push({ kind: 'image', url: imageUrl, alt: altRaw.trim(), markdown: fullMatch })
     cursor = end
   }
 
@@ -854,6 +857,7 @@ watch(
   () => props.activeThreadId,
   () => {
     modalImageUrl.value = ''
+    failedMarkdownImageKeys.value = new Set()
   },
   { flush: 'post' },
 )
@@ -866,6 +870,20 @@ function onConversationScroll(): void {
 
 function openImageModal(imageUrl: string): void {
   modalImageUrl.value = toRenderableImageUrl(imageUrl)
+}
+
+function markdownImageKey(messageId: string, blockIndex: number): string {
+  return `${messageId}:${String(blockIndex)}`
+}
+
+function onMarkdownImageError(messageId: string, blockIndex: number): void {
+  const next = new Set(failedMarkdownImageKeys.value)
+  next.add(markdownImageKey(messageId, blockIndex))
+  failedMarkdownImageKeys.value = next
+}
+
+function isMarkdownImageFailed(messageId: string, blockIndex: number): boolean {
+  return failedMarkdownImageKeys.value.has(markdownImageKey(messageId, blockIndex))
 }
 
 function closeImageModal(): void {
