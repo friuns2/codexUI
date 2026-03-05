@@ -101,18 +101,8 @@ function ensureCodexInstalled(): string | null {
         installWithFallback('@openai/codex', 'Codex CLI fallback install')
       }
     } else {
-      const installInstructions = [
-        '',
-        'Codex CLI is not installed on this system.',
-        '',
-        'Install it first:',
-        '  npm install -g @openai/codex',
-        '',
-        'Then login:',
-        '  codex login',
-        '',
-      ].join('\n')
-      throw new Error(installInstructions)
+      console.log('\nCodex CLI not found. Installing official Codex CLI from npm...\n')
+      installWithFallback('@openai/codex', 'Codex CLI install')
     }
 
     codexCommand = resolveCodexCommand()
