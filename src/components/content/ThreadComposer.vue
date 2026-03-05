@@ -106,17 +106,9 @@
               class="thread-composer-attach-item"
               type="button"
               :disabled="isInteractionDisabled"
-              @click="triggerFilePicker"
-            >
-              Add files
-            </button>
-            <button
-              class="thread-composer-attach-item"
-              type="button"
-              :disabled="isInteractionDisabled"
               @click="triggerPhotoLibrary"
             >
-              Add photos
+              Add photos & files
             </button>
             <button
               class="thread-composer-attach-item"
@@ -206,7 +198,6 @@
       ref="photoLibraryInputRef"
       class="thread-composer-hidden-input"
       type="file"
-      accept="image/*"
       multiple
       :disabled="isInteractionDisabled"
       @change="onPhotoLibraryChange"
@@ -227,7 +218,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ReasoningEffort } from '../../types/codex'
 import { useDictation } from '../../composables/useDictation'
-import { searchComposerFiles, type ComposerFileSuggestion } from '../../api/codexGateway'
+import { searchComposerFiles, uploadFile, type ComposerFileSuggestion } from '../../api/codexGateway'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
 import IconTablerMicrophone from '../icons/IconTablerMicrophone.vue'
@@ -399,30 +390,30 @@ function addFileAttachment(filePath: string): void {
   fileAttachments.value = [...fileAttachments.value, { label, path: normalized, fsPath: normalized }]
 }
 
-function triggerFilePicker(): void {
-  isAttachMenuOpen.value = false
-  mentionStartIndex.value = null
-  mentionQuery.value = ''
-  isFileMentionOpen.value = true
-  fileMentionHighlightedIndex.value = 0
-  void queueFileMentionSearch()
-  nextTick(() => inputRef.value?.focus())
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true
+  return /\.(png|jpe?g|gif|webp)$/i.test(file.name)
 }
 
 function addFiles(files: FileList | null): void {
   if (!files || files.length === 0) return
   for (const file of Array.from(files)) {
-    if (!file.type.startsWith('image/')) continue
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') return
-      selectedImages.value.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: file.name,
-        url: reader.result,
-      })
+    if (isImageFile(file)) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') return
+        selectedImages.value.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: file.name,
+          url: reader.result,
+        })
+      }
+      reader.readAsDataURL(file)
+    } else {
+      void uploadFile(file).then((serverPath) => {
+        if (serverPath) addFileAttachment(serverPath)
+      }).catch(() => {})
     }
-    reader.readAsDataURL(file)
   }
 }
 

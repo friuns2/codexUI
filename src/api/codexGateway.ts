@@ -479,3 +479,16 @@ export async function getSkillsList(cwds?: string[]): Promise<SkillInfo[]> {
     return []
   }
 }
+
+export async function uploadFile(file: File): Promise<string | null> {
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await fetch('/codex-api/upload-file', { method: 'POST', body: form })
+    if (!resp.ok) return null
+    const data = (await resp.json()) as { path?: string }
+    return data.path ?? null
+  } catch {
+    return null
+  }
+}
