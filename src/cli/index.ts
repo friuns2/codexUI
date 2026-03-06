@@ -195,6 +195,7 @@ async function startServer(options: { port: string; password: string | boolean }
     '',
     'Codex Web Local is running!',
     `  Version:  ${version}`,
+    '  GitHub:   https://github.com/friuns2/codexui',
     '',
     `  Local:    http://localhost:${String(port)}`,
   ]
