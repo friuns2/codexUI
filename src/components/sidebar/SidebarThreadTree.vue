@@ -45,16 +45,6 @@
                   </button>
                 </div>
               </div>
-              <button
-                class="thread-archive-button"
-                :data-confirm="archiveConfirmThreadId === thread.id"
-                type="button"
-                title="archive_thread"
-                @click="onArchiveClick(thread.id)"
-              >
-                <span v-if="archiveConfirmThreadId === thread.id">confirm</span>
-                <IconTablerArchive v-else class="thread-icon" />
-              </button>
             </template>
           </SidebarMenuRow>
         </li>
@@ -153,16 +143,6 @@
                 </button>
               </div>
             </div>
-            <button
-              class="thread-archive-button"
-              :data-confirm="archiveConfirmThreadId === thread.id"
-              type="button"
-              title="archive_thread"
-              @click="onArchiveClick(thread.id)"
-            >
-              <span v-if="archiveConfirmThreadId === thread.id">confirm</span>
-              <IconTablerArchive v-else class="thread-icon" />
-            </button>
           </template>
         </SidebarMenuRow>
       </li>
@@ -306,16 +286,6 @@
                       </button>
                     </div>
                   </div>
-                  <button
-                    class="thread-archive-button"
-                    :data-confirm="archiveConfirmThreadId === thread.id"
-                    type="button"
-                    title="archive_thread"
-                    @click="onArchiveClick(thread.id)"
-                  >
-                    <span v-if="archiveConfirmThreadId === thread.id">confirm</span>
-                    <IconTablerArchive v-else class="thread-icon" />
-                  </button>
                 </template>
               </SidebarMenuRow>
             </li>
@@ -382,7 +352,6 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import type { UiProjectGroup, UiThread } from '../../types/codex'
-import IconTablerArchive from '../icons/IconTablerArchive.vue'
 import IconTablerChevronDown from '../icons/IconTablerChevronDown.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
 import IconTablerDots from '../icons/IconTablerDots.vue'
@@ -445,7 +414,6 @@ const PROJECT_GROUP_EXPANDED_GAP_PX = 6
 const expandedProjects = ref<Record<string, boolean>>({})
 const collapsedProjects = ref<Record<string, boolean>>({})
 const pinnedThreadIds = ref<string[]>([])
-const archiveConfirmThreadId = ref('')
 const openProjectMenuId = ref('')
 const openThreadMenuId = ref('')
 const projectMenuMode = ref<'actions' | 'rename'>('actions')
@@ -670,17 +638,6 @@ function onSelect(threadId: string): void {
   emit('select', threadId)
 }
 
-function onArchiveClick(threadId: string): void {
-  if (archiveConfirmThreadId.value !== threadId) {
-    archiveConfirmThreadId.value = threadId
-    return
-  }
-
-  archiveConfirmThreadId.value = ''
-  pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId)
-  emit('archive', threadId)
-}
-
 function getNewThreadButtonAriaLabel(projectName: string): string {
   return `start new thread ${getProjectDisplayName(projectName)}`
 }
@@ -690,9 +647,6 @@ function onStartNewThread(projectName: string): void {
 }
 
 function onThreadRowLeave(threadId: string): void {
-  if (archiveConfirmThreadId.value === threadId) {
-    archiveConfirmThreadId.value = ''
-  }
   if (openThreadMenuId.value === threadId) {
     closeThreadMenu()
   }
@@ -712,7 +666,6 @@ function toggleThreadMenu(threadId: string): void {
     return
   }
   openThreadMenuId.value = threadId
-  archiveConfirmThreadId.value = ''
 }
 
 function openRenameThreadDialog(threadId: string, currentTitle: string): void {
@@ -1523,14 +1476,6 @@ onBeforeUnmount(() => {
 
 .thread-menu-item-danger {
   @apply text-rose-700 hover:bg-rose-50;
-}
-
-.thread-archive-button {
-  @apply h-4 w-4 rounded p-0 text-xs text-zinc-600 flex items-center justify-center;
-}
-
-.thread-archive-button[data-confirm='true'] {
-  @apply h-5 w-auto px-1.5;
 }
 
 .thread-icon {

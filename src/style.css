@@ -257,10 +257,6 @@
   @apply text-rose-300 hover:bg-rose-900/40;
 }
 
-:root.dark .thread-archive-button {
-  @apply text-zinc-400;
-}
-
 :root.dark .thread-menu-trigger {
   @apply text-zinc-400;
 }
